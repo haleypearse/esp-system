@@ -14,7 +14,7 @@
 
 using namespace EspSystem;
 
-System system;
+System espSystem;
 
 bool applicationHealthCheck()
 {
@@ -50,23 +50,23 @@ void setup()
     config.checkForUpdateOnBoot = UPDATE_MANIFEST_URL[0] != '\0';
     config.enableWeb = true;
 
-    system.setHealthCheck(applicationHealthCheck);
-    system.setPreUpdateCheck([] {
+    espSystem.setHealthCheck(applicationHealthCheck);
+    espSystem.setPreUpdateCheck([] {
         // Bootstrap has no actuators. Real projects should reject updates when it
         // is unsafe to reboot their particular hardware.
         return true;
     });
 
-    system.begin(config);
+    espSystem.begin(config);
 
     Serial.println("System started");
     Serial.print("Wi-Fi: ");
-    Serial.println(system.wifi().connected() ? "connected" : "waiting");
+    Serial.println(espSystem.wifi().connected() ? "connected" : "waiting");
 }
 
 void loop()
 {
-    system.loop();
+    espSystem.loop();
 
     // The application layer is deliberately empty here.
     // Future projects retain the system.loop() call and put their own logic after it.
