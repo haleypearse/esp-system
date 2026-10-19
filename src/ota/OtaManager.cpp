@@ -3,6 +3,9 @@
 #include <Update.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
+#include <mbedtls/sha256.h>
+#include <algorithm>
+#include <cctype>
 
 namespace EspSystem {
 
@@ -52,6 +55,29 @@ bool OtaManager::preUpdateAllowed()
     return true;
 }
 
+namespace {
+bool isValidSha256Hex(const String& s)
+{
+    if (s.length() != 64) return false;
+    for (size_t i = 0; i < s.length(); ++i) {
+        if (!std::isxdigit(static_cast<unsigned char>(s[i]))) return false;
+    }
+    return true;
+}
+
+String toHexLower(const uint8_t* bytes, size_t len)
+{
+    static const char* kHex = "0123456789abcdef";
+    String out;
+    out.reserve(len * 2);
+    for (size_t i = 0; i < len; ++i) {
+        out += kHex[(bytes[i] >> 4) & 0x0F];
+        out += kHex[bytes[i] & 0x0F];
+    }
+    return out;
+}
+} // namespace
+
 bool OtaManager::beginNativeUpdate(size_t size, const String& expectedSha256)
 {
     if (!preUpdateAllowed()) return false;
@@ -62,7 +88,7 @@ bool OtaManager::beginNativeUpdate(size_t size, const String& expectedSha256)
         return false;
     }
 
-    if (!expectedSha256.isEmpty() && !Update.setSHA256(expectedSha256.c_str())) {
+    if (!expectedSha256.isEmpty() && !isValidSha256Hex(expectedSha256)) {
         Update.abort();
         fail("Invalid expected SHA-256", UPDATE_ERROR_BAD_ARGUMENT);
         return false;
@@ -85,11 +111,55 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
 {
     if (!beginNativeUpdate(size, expectedSha256)) return false;
 
-    const size_t written = Update.writeStream(stream);
-    if (written != size) {
-        fail(String("Only wrote ") + written + " of " + size + " bytes", UPDATE_ERROR_WRITE);
-        Update.abort();
-        return false;
+    const bool verifySha = !expectedSha256.isEmpty();
+    mbedtls_sha256_context shaCtx;
+    uint8_t shaDigest[32] = {0};
+
+    if (verifySha) {
+        mbedtls_sha256_init(&shaCtx);
+        mbedtls_sha256_starts_ret(&shaCtx, 0);
+    }
+
+    uint8_t buffer[1024];
+    size_t totalWritten = 0;
+
+    while (totalWritten < size) {
+        const size_t toRead = std::min(sizeof(buffer), size - totalWritten);
+        const int got = stream.readBytes(reinterpret_cast<char*>(buffer), toRead);
+        if (got <= 0) {
+            if (verifySha) mbedtls_sha256_free(&shaCtx);
+            Update.abort();
+            fail("Stream read failed during OTA", UPDATE_ERROR_STREAM);
+            return false;
+        }
+
+        if (verifySha) {
+            mbedtls_sha256_update_ret(&shaCtx, buffer, static_cast<size_t>(got));
+        }
+
+        const size_t written = Update.write(buffer, static_cast<size_t>(got));
+        if (written != static_cast<size_t>(got)) {
+            if (verifySha) mbedtls_sha256_free(&shaCtx);
+            Update.abort();
+            fail(String("Only wrote ") + written + " of " + got + " bytes", UPDATE_ERROR_WRITE);
+            return false;
+        }
+
+        totalWritten += written;
+    }
+
+    if (verifySha) {
+        mbedtls_sha256_finish_ret(&shaCtx, shaDigest);
+        mbedtls_sha256_free(&shaCtx);
+
+        String actual = toHexLower(shaDigest, sizeof(shaDigest));
+        String expected = expectedSha256;
+        expected.toLowerCase();
+        if (actual != expected) {
+            Update.abort();
+            fail("SHA-256 mismatch", UPDATE_ERROR_MD5);
+            return false;
+        }
     }
 
     if (!Update.end()) {
@@ -172,7 +242,7 @@ bool OtaManager::beginUpload(size_t totalSize)
 size_t OtaManager::writeUpload(const uint8_t* data, size_t len)
 {
     if (!_uploadInProgress || !data || len == 0) return 0;
-    const size_t written = Update.write(data, len);
+    const size_t written = Update.write(const_cast<uint8_t*>(data), len);
     _uploadWritten += written;
     return written;
 }

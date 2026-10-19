@@ -4,10 +4,16 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <NetworkClientSecure.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
 namespace EspSystem {
+
+HttpUpdateSource::HttpUpdateSource(const String& manifestUrl)
+    : _manifestUrl(manifestUrl)
+{
+}
 
 static bool isHttps(const String& url)
 {
@@ -22,38 +28,30 @@ bool HttpUpdateSource::getText(const String& url, String& body)
 
     if (isHttps(url)) {
         if (!_rootCa || !*_rootCa) return false;
-        auto* client = new NetworkClientSecure();
-        client->setCACert(_rootCa);
-        if (!http.begin(*client, url)) {
-            delete client;
-            return false;
-        }
+        WiFiClientSecure client;
+        client.setCACert(_rootCa);
+        if (!http.begin(client, url)) return false;
+
         const int code = http.GET();
         if (code != HTTP_CODE_OK) {
             http.end();
-            delete client;
             return false;
         }
         body = http.getString();
         http.end();
-        delete client;
         return true;
     }
 
-    auto* client = new NetworkClient();
-    if (!http.begin(*client, url)) {
-        delete client;
-        return false;
-    }
+    WiFiClient client;
+    if (!http.begin(client, url)) return false;
+
     const int code = http.GET();
     if (code != HTTP_CODE_OK) {
         http.end();
-        delete client;
         return false;
     }
     body = http.getString();
     http.end();
-    delete client;
     return true;
 }
 
@@ -88,49 +86,38 @@ bool HttpUpdateSource::install(const OtaCandidate& candidate, OtaManager& ota)
     HTTPClient http;
     if (isHttps(candidate.url)) {
         if (!_rootCa || !*_rootCa) return false;
-        auto* client = new NetworkClientSecure();
-        client->setCACert(_rootCa);
-        if (!http.begin(*client, candidate.url)) {
-            delete client;
-            return false;
-        }
+        WiFiClientSecure client;
+        client.setCACert(_rootCa);
+        if (!http.begin(client, candidate.url)) return false;
 
         const int code = http.GET();
         if (code != HTTP_CODE_OK) {
             http.end();
-            delete client;
             return false;
         }
         const size_t size = http.getSize() > 0 ? static_cast<size_t>(http.getSize()) : candidate.size;
         const bool ok = size > 0 && ota.installFromStream(http.getStream(), size, candidate.sha256, true);
         http.end();
-        delete client;
         return ok;
     }
 
-    auto* client = new NetworkClient();
-    if (!http.begin(*client, candidate.url)) {
-        delete client;
-        return false;
-    }
+    WiFiClient client;
+    if (!http.begin(client, candidate.url)) return false;
 
     const int code = http.GET();
     if (code != HTTP_CODE_OK) {
         http.end();
-        delete client;
         return false;
     }
 
     const size_t size = http.getSize() > 0 ? static_cast<size_t>(http.getSize()) : candidate.size;
     if (size == 0) {
         http.end();
-        delete client;
         return false;
     }
 
     const bool ok = ota.installFromStream(http.getStream(), size, candidate.sha256, true);
     http.end();
-    delete client;
     return ok;
 }
 
