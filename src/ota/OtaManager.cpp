@@ -4,6 +4,7 @@
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/version.h>
 #include <algorithm>
 #include <cctype>
 
@@ -117,7 +118,11 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
 
     if (verifySha) {
         mbedtls_sha256_init(&shaCtx);
+#if MBEDTLS_VERSION_MAJOR >= 3
+        mbedtls_sha256_starts(&shaCtx, 0);
+#else
         mbedtls_sha256_starts_ret(&shaCtx, 0);
+#endif
     }
 
     uint8_t buffer[1024];
@@ -134,7 +139,11 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
         }
 
         if (verifySha) {
+#if MBEDTLS_VERSION_MAJOR >= 3
+            mbedtls_sha256_update(&shaCtx, buffer, static_cast<size_t>(got));
+#else
             mbedtls_sha256_update_ret(&shaCtx, buffer, static_cast<size_t>(got));
+#endif
         }
 
         const size_t written = Update.write(buffer, static_cast<size_t>(got));
@@ -149,7 +158,11 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
     }
 
     if (verifySha) {
+#if MBEDTLS_VERSION_MAJOR >= 3
+        mbedtls_sha256_finish(&shaCtx, shaDigest);
+#else
         mbedtls_sha256_finish_ret(&shaCtx, shaDigest);
+#endif
         mbedtls_sha256_free(&shaCtx);
 
         String actual = toHexLower(shaDigest, sizeof(shaDigest));
