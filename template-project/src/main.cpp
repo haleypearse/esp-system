@@ -14,7 +14,7 @@
 
 using namespace EspSystem;
 
-System system;
+System espSystem;
 
 bool appHealthCheck()
 {
@@ -61,15 +61,15 @@ void setup()
     config.enableWeb = true;
     config.updateCheckIntervalMs = UPDATE_MANIFEST_URL[0] ? 6UL * 60UL * 60UL * 1000UL : 0;
 
-    system.setHealthCheck(appHealthCheck);
-    system.setPreUpdateCheck(appCanSafelyUpdate);
-    system.begin(config);
+    espSystem.setHealthCheck(appHealthCheck);
+    espSystem.setPreUpdateCheck(appCanSafelyUpdate);
+    espSystem.begin(config);
 
     appBegin();
 }
 
 void loop()
 {
-    system.loop();
+    espSystem.loop();
     appLoop();
 }

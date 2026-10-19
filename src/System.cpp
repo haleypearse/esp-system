@@ -9,7 +9,7 @@ System::System()
 {
 }
 
-void EspSystem::begin(const SystemConfig& config)
+void System::begin(const SystemConfig& config)
 {
     _config = config;
 
@@ -49,7 +49,7 @@ void EspSystem::begin(const SystemConfig& config)
     _started = true;
 }
 
-void EspSystem::loop()
+void System::loop()
 {
     if (!_started) return;
 
