@@ -1,86 +1,79 @@
-# OTA integration contract for future projects
+# OTA integration contract
 
-This document is deliberately short and prescriptive. Read it before changing a project that
-uses `esp-system`.
+Read `OTA_REQUIREMENTS.md` before adding features or editing a deployed application.
 
-## Required
+## Required integration
 
-1. Use an OTA-capable partition table with two application slots.
-2. Keep the `esp-system` dependency in `platformio.ini`.
-3. Call `System::begin()` from `setup()`.
-4. Call `system.loop()` on every iteration of the main loop.
-5. Do not call ESP OTA partition APIs directly from application code.
-6. Keep firmware version, hardware ID, and config schema accurate.
+1. Pin a released version of `esp-system` in `platformio.ini`.
+2. Use a board-compatible OTA partition table with two application slots and `otadata`.
+3. Set exact product, hardware, firmware version, build/Git identity, API version and configuration
+   schema in `SystemConfig`.
+4. Call `espSystem.begin(config)` in `setup()` and `espSystem.loop()` every normal loop iteration.
+5. Leave `enableManagement=true` and `managementPort=8080` unless the deployment has a reason to change
+   them. System management uses its own web server; do not merge its handlers into the application web
+   server.
+6. Configure non-default Wi-Fi/management credentials during bootstrap, with both OTA username and password nonempty. Later images may leave the
+   values blank to load the credentials stored in NVS when `manageWifi=true`; if the application owns Wi-Fi, it owns Wi-Fi credential persistence.
+7. Implement safety/health callbacks when an ordinary reboot or a successful startup cannot be assumed.
+8. Never manipulate OTA partitions directly from application code.
 
-Minimal shape:
+## Basic application shape
 
 ```cpp
+#include <Arduino.h>
 #include <System.h>
 
-EspSystem::System system;
+EspSystem::System espSystem;
+
+void appBegin();
+void appLoop();
+bool appCanSafelyUpdate();
+bool appHealthCheck();
 
 void setup() {
     EspSystem::SystemConfig config;
-    config.firmware.product = "my-project";
+    config.firmware.product = "my-product";
     config.firmware.hardware = "my-board-v1";
     config.firmware.version = "0.1.0";
-    config.firmware.build = "dev";
+    config.firmware.build = __DATE__ " " __TIME__;
     config.firmware.git = "local";
-    system.begin(config);
+    config.firmware.configSchema = 1;
+    config.firmware.apiVersion = 1;
+    config.deviceName = "my-product";
+    config.managementPort = 8080;
+    config.enableManagement = true;
+    config.manageMdns = true;
+
+    espSystem.setPreUpdateCheck(appCanSafelyUpdate);
+    espSystem.setHealthCheck(appHealthCheck);
+    espSystem.begin(config);
+    appBegin();
 }
 
 void loop() {
-    system.loop();
-    app.loop();
+    espSystem.loop();
+    appLoop();
 }
 ```
 
-## Optional application hooks
+## Network and management endpoint
 
-Use a pre-update check when a reboot/update must only happen in a safe state:
+The current System profile can manage Wi-Fi connectivity by default and supports HTTP(S) pull plus browser upload.
+The management URL is `http://<hostname>.local:<managementPort>/`; the update page is `/update`.
+The default port is 8080. The app's own web server can remain on port 80. `enableManagement=false`
+disables the System management server. Port 0 is invalid. `manageMdns=true` lets System initialize mDNS; set
+it to `false` only if the application already calls `MDNS.begin()` for the same hostname. In that mode, System
+registers its `_esp-system._tcp` service on the existing responder rather than starting another one.
 
-```cpp
-system.setPreUpdateCheck([] {
-    return app.canSafelyReboot();
-});
-```
+Set `config.manageWifi = false` if application code already owns `WiFi.begin()`/connection recovery; System will reuse the global Arduino Wi-Fi connection rather than reconfiguring it. If the application leaves Wi-Fi management enabled (the default), System owns station setup/retry. Blank SSID/password may load previously stored NVS Wi-Fi values only when `manageWifi=true`; blank OTA user/password may load the stored management credentials. Stored Wi-Fi and OTA
+credentials share the `esp_system` NVS namespace. Do not erase this namespace as part of a normal OTA. Avoid choosing a management port already used by another server on the device.
 
-Use a health check when the application can detect a bad update after boot:
+## Partition and release requirements
 
-```cpp
-system.setHealthCheck([] {
-    return app.selfTestPassed();
-});
-```
+Use a partition table compatible with what is already flashed on the board. Regular OTA does not alter
+the partition table. For device-pull releases, include exact `product`, `hardware`, a numeric
+`MAJOR.MINOR.PATCH` version, positive `size`, firmware URL and 64-character hexadecimal `sha256` in
+the manifest. The digest detects mismatch/corruption, not a maliciously replaced unsigned manifest.
 
-The system confirms a pending OTA image only after its configured startup delay.
-
-## Network ownership
-
-The system layer may supply Wi-Fi, but OTA does not intrinsically depend on Wi-Fi.
-The HTTP update source uses whatever IP connection is available to the ESP32. Do not create a
-second Wi-Fi manager inside the application unless there is a concrete reason to replace the
-system connectivity service.
-
-Future transports should implement `UpdateSource` instead of changing `OtaManager`.
-
-## Configuration and secrets
-
-Wi-Fi credentials supplied to `SystemConfig` are persisted by `WifiService`. Later applications
-may leave `wifiSsid` and `wifiPassword` empty/null to reuse those values.
-
-Do not commit `secrets.h`.
-
-## Partition rule
-
-A firmware image must fit within the application slots. Increasing application size may require
-changing the partition table before an OTA release can be deployed.
-
-Do not casually change the partition table of a deployed device; treat partition-table changes
-as a separate migration/recovery concern.
-
-## OTA rule for AI-assisted edits
-
-Do not replace or duplicate the OTA system because the application does not immediately need it.
-Keep the dependency and main-loop integration intact. Add application-specific code in the
-application layer.
+For safety constraints, see the acceptance checklist in `OTA_REQUIREMENTS.md`. USB/esptool remains the
+recovery path.

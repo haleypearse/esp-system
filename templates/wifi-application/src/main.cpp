@@ -58,7 +58,9 @@ void setup()
     config.otaPassword = OTA_PASSWORD;
     config.updateManifestUrl = UPDATE_MANIFEST_URL;
     config.updateRootCaPem = UPDATE_ROOT_CA;
-    config.enableWeb = true;
+    config.enableManagement = true;
+    config.managementPort = 8080;
+    config.manageMdns = true; // set false if the application already initializes MDNS
     config.updateCheckIntervalMs = UPDATE_MANIFEST_URL[0] ? 6UL * 60UL * 60UL * 1000UL : 0;
 
     espSystem.setHealthCheck(appHealthCheck);

@@ -30,6 +30,10 @@ def main() -> None:
     args = p.parse_args()
 
     image = args.firmware.resolve()
+    if not image.is_file() or image.stat().st_size <= 0:
+        p.error(f"firmware must be an existing non-empty file: {image}")
+    if args.product.strip() in ("", "*") or args.hardware.strip() in ("", "*"):
+        p.error("--product and --hardware must identify one exact target; wildcards are not accepted")
     base = args.base_url if args.base_url.endswith("/") else args.base_url + "/"
     data = {
         "product": args.product,

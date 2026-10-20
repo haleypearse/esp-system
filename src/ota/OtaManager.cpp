@@ -211,8 +211,9 @@ bool OtaManager::checkForUpdate()
         return false;
     }
 
-    const bool productMatches = candidate.product == "*" || candidate.product == _current.product;
-    const bool hardwareMatches = candidate.hardware == "*" || candidate.hardware == _current.hardware;
+    // Fail closed: a release must explicitly target this product and hardware.
+    const bool productMatches = !candidate.product.isEmpty() && candidate.product == _current.product;
+    const bool hardwareMatches = !candidate.hardware.isEmpty() && candidate.hardware == _current.hardware;
     const bool newer = compareVersions(candidate.version, _current.version) > 0;
 
     if (!productMatches || !hardwareMatches || !newer) {
@@ -236,8 +237,8 @@ bool OtaManager::checkForUpdate()
 bool OtaManager::installAvailable()
 {
     if (!_source || _status.state != OtaState::UpdateAvailable) return false;
-    if (!preUpdateAllowed()) return false;
-
+    // The common installer runs preUpdateAllowed() once. Avoid invoking a
+    // potentially stateful application callback twice for one installation.
     return _source->install(_candidate, *this);
 }
 

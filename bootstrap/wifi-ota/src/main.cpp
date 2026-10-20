@@ -33,7 +33,7 @@ void setup()
     SystemConfig config;
     config.firmware.product = "minimal-wifi-ota";
     config.firmware.hardware = "generic-esp32";
-    config.firmware.version = "0.1.0";
+    config.firmware.version = "0.2.0";
     config.firmware.build = __DATE__ " " __TIME__;
     config.firmware.git = "bootstrap";
     config.firmware.configSchema = 1;
@@ -48,7 +48,9 @@ void setup()
     config.updateRootCaPem = UPDATE_ROOT_CA;
     config.updateCheckIntervalMs = UPDATE_MANIFEST_URL[0] ? 60UL * 60UL * 1000UL : 0;
     config.checkForUpdateOnBoot = UPDATE_MANIFEST_URL[0] != '\0';
-    config.enableWeb = true;
+    config.enableManagement = true;
+    config.managementPort = 8080;
+    config.manageMdns = true; // set false if the application already initializes MDNS
 
     espSystem.setHealthCheck(applicationHealthCheck);
     espSystem.setPreUpdateCheck([] {
@@ -69,6 +71,6 @@ void loop()
     espSystem.loop();
 
     // The application layer is deliberately empty here.
-    // Future projects retain the system.loop() call and put their own logic after it.
+    // Future projects retain espSystem.loop() and add their own logic after it.
     delay(2);
 }

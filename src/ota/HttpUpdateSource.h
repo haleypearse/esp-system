@@ -15,7 +15,7 @@ public:
     const String& manifestUrl() const { return _manifestUrl; }
 
     // For HTTPS, supply a PEM-encoded root CA. HTTP works without this.
-    void setRootCACertificate(const char* pem) { _rootCa = pem; }
+    void setRootCACertificate(const char* pem) { _rootCa = pem ? String(pem) : String(); }
 
     bool check(OtaCandidate& candidate) override;
     bool install(const OtaCandidate& candidate, OtaManager& ota) override;
@@ -25,7 +25,7 @@ private:
     bool getText(const String& url, String& body);
 
     String _manifestUrl;
-    const char* _rootCa = nullptr;
+    String _rootCa;
 };
 
 } // namespace EspSystem

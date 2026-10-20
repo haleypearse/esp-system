@@ -1,4 +1,4 @@
-name: Build ESP32 example
+name: Build ESP System projects
 
 on:
   push:
@@ -14,5 +14,15 @@ jobs:
           python-version: '3.12'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build example
-        run: pio run -d examples/MinimalWifiOta
+      - name: Build Wi-Fi bootstrap against repository source
+        run: pio run -d bootstrap/wifi-ota
+      - name: Build Wi-Fi application template against repository source
+        run: |
+          sed -i 's|https://github.com/haleypearse/esp-system.git#v0.2.0|file://../..|' templates/wifi-application/platformio.ini
+          pio run -d templates/wifi-application
+      - name: Validate update tools
+        run: python -m py_compile tools/make_manifest.py tools/serve_updates.py tools/check_partitions.py
+      - name: Check 4 MiB partition table bounds
+        run: python tools/check_partitions.py partitions/ota_4mb.csv --flash-size 0x400000
+      - name: Check 8 MiB partition table bounds
+        run: python tools/check_partitions.py partitions/ota_8mb.csv --flash-size 0x800000

@@ -14,6 +14,10 @@ struct SystemConfig {
 
     const char* deviceName = "esp32";
 
+    // true: ESP System owns Wi-Fi station setup/retry. false: the application
+    // owns connection setup, while System reuses the global Arduino WiFi client.
+    bool manageWifi = true;
+
     // If supplied, these are saved in NVS. If blank/null, saved credentials are used.
     const char* wifiSsid = nullptr;
     const char* wifiPassword = nullptr;
@@ -28,7 +32,15 @@ struct SystemConfig {
     uint32_t updateCheckIntervalMs = 0; // 0 = disabled
     bool checkForUpdateOnBoot = false;
 
-    bool enableWeb = true;
+    // Run the independent ESP System management server. It does not share the
+    // application's HTTP server. Set false to disable browser management.
+    bool enableManagement = true;
+    // true: System initializes the mDNS responder. Set false only if the
+    // application already calls MDNS.begin() for this device; System will
+    // then register its management service on that existing responder.
+    bool manageMdns = true;
+    // Separate HTTP port for management (default 8080; 0 is invalid).
+    uint16_t managementPort = 8080;
     uint32_t rollbackConfirmationDelayMs = 10000;
 };
 
@@ -49,6 +61,7 @@ public:
 
 private:
     SystemConfig _config;
+    String _deviceName;
     WifiService _wifi;
     OtaManager _ota;
     HttpUpdateSource _httpSource;
@@ -57,6 +70,11 @@ private:
     bool _remoteSourceConfigured = false;
     bool _remoteCheckPending = false;
     uint32_t _lastRemoteCheckMs = 0;
+    uint32_t _lastMdnsAttemptMs = 0;
+    bool _mdnsAttempted = false;
+    bool _mdnsInitialized = false;
+    bool _mdnsServiceRegistered = false;
+    void ensureMdns();
 };
 
 } // namespace EspSystem

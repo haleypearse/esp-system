@@ -27,9 +27,9 @@ bool HttpUpdateSource::getText(const String& url, String& body)
     HTTPClient http;
 
     if (isHttps(url)) {
-        if (!_rootCa || !*_rootCa) return false;
+        if (_rootCa.isEmpty()) return false;
         WiFiClientSecure client;
-        client.setCACert(_rootCa);
+        client.setCACert(_rootCa.c_str());
         if (!http.begin(client, url)) return false;
 
         const int code = http.GET();
@@ -74,9 +74,18 @@ bool HttpUpdateSource::check(OtaCandidate& candidate)
     candidate.notes = doc["notes"] | "";
     candidate.size = doc["size"] | 0;
 
-    return !candidate.product.isEmpty() && !candidate.version.isEmpty() &&
-           !candidate.hardware.isEmpty() && !candidate.url.isEmpty() &&
-           candidate.sha256.length() == 64;
+    if (candidate.product.isEmpty() || candidate.version.isEmpty() ||
+        candidate.hardware.isEmpty() || candidate.url.isEmpty() ||
+        candidate.sha256.length() != 64 || candidate.size == 0) return false;
+
+    // Reject malformed digests before they reach the flash writer.
+    for (size_t i = 0; i < candidate.sha256.length(); ++i) {
+        const char c = candidate.sha256[i];
+        if (!((c >= '0' && c <= '9') ||
+              (c >= 'a' && c <= 'f') ||
+              (c >= 'A' && c <= 'F'))) return false;
+    }
+    return true;
 }
 
 bool HttpUpdateSource::install(const OtaCandidate& candidate, OtaManager& ota)
@@ -85,9 +94,9 @@ bool HttpUpdateSource::install(const OtaCandidate& candidate, OtaManager& ota)
 
     HTTPClient http;
     if (isHttps(candidate.url)) {
-        if (!_rootCa || !*_rootCa) return false;
+        if (_rootCa.isEmpty()) return false;
         WiFiClientSecure client;
-        client.setCACert(_rootCa);
+        client.setCACert(_rootCa.c_str());
         if (!http.begin(client, candidate.url)) return false;
 
         const int code = http.GET();

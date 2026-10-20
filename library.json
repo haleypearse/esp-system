@@ -1,11 +1,11 @@
 {
   "name": "ESP System",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reusable ESP32 system services: Wi-Fi, local web management, OTA firmware installation, remote HTTP update discovery, persistent credentials, version metadata and boot health confirmation.",
   "keywords": ["esp32", "ota", "wifi", "platformio", "arduino"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_GITHUB_USER/esp-system.git"
+    "url": "https://github.com/haleypearse/esp-system.git"
   },
   "license": "MIT",
   "frameworks": "arduino",
@@ -15,6 +15,6 @@
     "bblanchon/ArduinoJson": "^7.0.0"
   },
   "examples": [
-    "examples/MinimalWifiOta"
+    "bootstrap/wifi-ota"
   ]
 }

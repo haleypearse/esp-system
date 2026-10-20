@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WebServer.h>
+#include <memory>
 #include "../core/FirmwareInfo.h"
 
 namespace EspSystem {
@@ -16,15 +17,17 @@ public:
     void begin(const FirmwareInfo& firmware,
                const char* hostname,
                const char* otaUsername,
-               const char* otaPassword);
+               const char* otaPassword,
+               uint16_t managementPort = 8080);
     void loop();
 
-    WebServer& server() { return _server; }
     bool enabled() const { return _enabled; }
+    uint16_t port() const { return _port; }
 
 private:
     void setupRoutes();
     bool authenticateUpdate();
+    bool originAllowed();
     void handleRoot();
     void handleStatus();
     void handleUpdatePage();
@@ -33,7 +36,8 @@ private:
     void handleNotFound();
     String htmlPage() const;
 
-    WebServer _server;
+    std::unique_ptr<WebServer> _server;
+    uint16_t _port = 8080;
     OtaManager& _ota;
     WifiService& _wifi;
     FirmwareInfo _firmware;
@@ -43,6 +47,9 @@ private:
     bool _enabled = false;
     bool _uploadStarted = false;
     bool _uploadAuthorized = false;
+    bool _uploadSucceeded = false;
+    int _uploadHttpStatus = 400;
+    String _uploadMessage;
 };
 
 } // namespace EspSystem
