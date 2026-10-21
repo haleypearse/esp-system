@@ -9,6 +9,8 @@
 - Tightened remote manifest validation: exact product/hardware targets, positive image size, and hexadecimal SHA-256.
 - Avoided invoking the application's pre-update callback twice for one remote install.
 - Added partition-table bounds checks to CI.
+- Standardized all 4 MiB/8 MiB profiles on a 64 KiB coredump partition and checked template copies for drift.
+- Fixed template dependency pin syntax and CI substitution so template builds use the checked-out library source.
 - Escaped manifest-derived strings in the management HTML to prevent update notes from injecting markup.
 - Added Origin checks for cross-origin browser POSTs to management update actions.
 - Made mDNS initialization configurable for applications that already own the responder.

@@ -17,9 +17,11 @@ signed firmware, a fleet-management service, or safe partition-table migration.
    image. Do not replace it with an application that omits `System` or the OTA-capable partition
    table if Wi-Fi OTA is expected to continue working.
 2. **Use a compatible partition table.** The firmware must be built for the same partition layout
-   already installed on the board and must fit in each OTA app slot. An ordinary application OTA
-   does not change the partition table. Partition-layout changes require a separately planned
-   reflash/migration and recovery route.
+   already installed on the board and must fit in each OTA app slot. The maintained 4 MiB and 8 MiB
+   profiles include `ota_0`, `ota_1`, `otadata`, and a 64 KiB `data,coredump` partition. If flash
+   core-dump storage is configured, custom tables must include an appropriate coredump partition.
+   An ordinary application OTA does not change the partition table. Partition-layout changes require
+   a separately planned reflash/migration and recovery route.
 3. **Use the System lifecycle.** Call `espSystem.begin(config)` in `setup()` and `espSystem.loop()` on
    every normal main-loop iteration. Do not invoke low-level ESP OTA APIs from application code.
 4. **Identify the image accurately.** Set `firmware.product`, `firmware.hardware`, and
@@ -64,8 +66,10 @@ signed firmware, a fleet-management service, or safe partition-table migration.
 For every application release, perform these checks before deploying to an unattended device:
 
 1. PlatformIO build succeeds for the intended board/environment.
-2. The selected partition CSV is the one installed on the target board, and the image fits within
-   an OTA slot.
+2. The selected partition CSV is the one installed on the target board, the table passes
+   `tools/check_partitions.py`, and the image fits within an OTA slot. If flash coredumps are enabled,
+   verify that the running board's installed table (not merely the new firmware's source tree) has the
+   coredump partition.
 3. `System` reports the expected product, hardware, version, build, and Git identity.
 4. The management page is reachable at `http://<hostname>.local:<managementPort>/` or by IP and
    the upload route requires configured credentials. If the app also uses mDNS, verify the `_esp-system._tcp`

@@ -73,8 +73,9 @@ provisioning, and signing-key management remain future production-security work.
 
 ## 7. Partition layout is a deployment contract
 
-**Chosen:** provide explicit 4 MiB and 8 MiB partition CSVs with two OTA slots and an OTA data partition.
-Builds must use the same partition layout already present on the target.
+**Chosen:** provide explicit 4 MiB and 8 MiB partition CSVs with two OTA slots, an OTA data partition,
+and a 64 KiB coredump partition. The same tables are copied into the standalone application template
+and checked for equality. Builds must use the same partition layout already present on the target.
 
 **Why:** the native bootloader reads the partition table already installed in flash. Ordinary application
 OTA does not safely migrate partition offsets or size. Partition migration requires a separate, recovery-

@@ -15,3 +15,10 @@ The template depends on the versioned ESP System library. The system provides Wi
 Management URL: `http://<device-hostname>.local:8080/` (or the board's IP address on port 8080). Configure `managementPort` to use another port.
 
 For the integration rules and acceptance checks, read `docs/OTA_REQUIREMENTS.md` and `docs/OTA_INTEGRATION.md` in the ESP System repository.
+
+## Partition variants and coredumps
+
+The default `partitions/ota_4mb.csv` matches the standard bootstrap table and reserves 64 KiB for
+flash core dumps. For a board with 8 MiB flash, switch both `board_build.partitions` and the selected
+installed table to `partitions/ota_8mb.csv`. Changing an installed table is not possible through an
+ordinary application OTA; flash the table over serial and retain a recovery path.

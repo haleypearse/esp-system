@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a simple ESP-IDF/Arduino partition CSV against flash bounds."""
+"""Validate ESP System OTA partition tables, including flash coredump storage."""
 from __future__ import annotations
 import argparse
 import csv
@@ -34,14 +34,25 @@ def main() -> None:
     for previous, current in zip(partitions, partitions[1:]):
         if current[0] < previous[1]:
             parser.error(f"partition overlap: {previous[2]} and {current[2]}")
-    ota_apps = [p for p in partitions if p[3] == "app" and p[4].startswith("ota_")]
+    ota_apps = {p[2]: p for p in partitions if p[3] == "app" and p[4] in ("ota_0", "ota_1")}
+    if set(ota_apps) != {"ota_0", "ota_1"}:
+        parser.error("requires app partitions named ota_0 and ota_1")
+    ota0_size = ota_apps["ota_0"][1] - ota_apps["ota_0"][0]
+    ota1_size = ota_apps["ota_1"][1] - ota_apps["ota_1"][0]
+    if ota0_size != ota1_size:
+        parser.error(f"OTA slots must have equal sizes (ota_0=0x{ota0_size:X}, ota_1=0x{ota1_size:X})")
+
     ota_data = [p for p in partitions if p[3] == "data" and p[4] == "ota"]
-    if len(ota_apps) < 2:
-        parser.error("requires at least two app partitions with ota_* subtypes")
     if len(ota_data) != 1 or ota_data[0][1] - ota_data[0][0] < 0x2000:
         parser.error("requires one OTA data partition of at least 0x2000 bytes")
+
+    coredump = [p for p in partitions if p[3] == "data" and p[4] == "coredump"]
+    if len(coredump) != 1 or coredump[0][1] - coredump[0][0] < 0x10000:
+        parser.error("requires one data,coredump partition of at least 0x10000 bytes (64 KiB)")
+
     print(f"OK: {args.csv}: {len(partitions)} partitions, flash bound 0x{args.flash_size:X}, "
-          f"OTA slots: {', '.join(f'{p[2]}=0x{p[1]-p[0]:X}' for p in ota_apps)}")
+          f"OTA slots: ota_0=0x{ota0_size:X}, ota_1=0x{ota1_size:X}, "
+          f"coredump=0x{coredump[0][1]-coredump[0][0]:X}")
 
 
 if __name__ == "__main__":

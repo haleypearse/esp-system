@@ -162,16 +162,26 @@ If neither callback is supplied, a successfully running boot is enough to confir
 They do not assume that the slots consume exactly half of flash; their sizes are explicit in
 the partition CSV.
 
-A normal 4 MB layout here is approximately:
+Both standard layouts reserve a 64 KiB `data,coredump` partition for flash-based core dumps.
+The 4 MiB layout is approximately:
 
 ```text
 NVS / OTA metadata
 ota_0       1.875 MiB
 ota_1       1.875 MiB
-filesystem  0.1875 MiB
+filesystem  0.125 MiB
+coredump    0.0625 MiB
 ```
 
-An 8 MB layout gives substantially more room for both firmware and web assets.
+The 8 MiB layout preserves the same 64 KiB coredump partition and allocates more space to the
+application slots and filesystem. CI checks both root layouts and the copies included in the
+standalone application template, and rejects tables without coredump storage.
+
+A partition CSV is used when flashing/building a partition table; an ordinary application `.bin`
+OTA does not write a new table. If a table needs to change on an already provisioned board, schedule
+a partition-table reflash with a recovery path. The new 4 MiB table allocates the final 64 KiB of
+the previous filesystem region to coredump storage, so any existing filesystem data in that region
+must not be assumed to survive the layout change.
 
 ## Git dependency model
 

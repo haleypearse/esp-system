@@ -26,3 +26,11 @@ jobs:
         run: python tools/check_partitions.py partitions/ota_4mb.csv --flash-size 0x400000
       - name: Check 8 MiB partition table bounds
         run: python tools/check_partitions.py partitions/ota_8mb.csv --flash-size 0x800000
+      - name: Check template partition tables
+        run: |
+          python tools/check_partitions.py templates/wifi-application/partitions/ota_4mb.csv --flash-size 0x400000
+          python tools/check_partitions.py templates/wifi-application/partitions/ota_8mb.csv --flash-size 0x800000
+          cmp partitions/ota_4mb.csv templates/wifi-application/partitions/ota_4mb.csv
+          cmp partitions/ota_8mb.csv templates/wifi-application/partitions/ota_8mb.csv
+      - name: Check patch whitespace
+        run: git diff --check
