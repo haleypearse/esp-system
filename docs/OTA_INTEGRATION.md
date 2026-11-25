@@ -70,9 +70,10 @@ credentials share the `esp_system` NVS namespace. Do not erase this namespace as
 
 Applications using System-managed Wi-Fi may call `espSystem.suspendWifi()` and
 `espSystem.resumeWifi()` for a short, deliberate radio outage (for example, to access
-a peripheral resource that conflicts with an active Wi-Fi driver). Suspension is
-refused while OTA is checking, an update is available or installing, or boot-health
-verification is pending. When `manageMdns=true`, System restarts its own mDNS responder
+a peripheral resource that conflicts with an active Wi-Fi driver). Suspension requires
+a connected STA-only interface; AP and AP+STA modes are refused because the radio
+would remain active. Suspension is also refused while OTA is checking, an update is
+available or installing, or boot-health verification is pending. When `manageMdns=true`, System restarts its own mDNS responder
 after reconnection. A successful resume call only requests reconnection; it does not
 mean that the station has already regained an IP address. Always request resume on
 every exit path after a successful suspension. Do not suspend during a browser upload
