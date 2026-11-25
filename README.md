@@ -67,9 +67,11 @@ if (espSystem.suspendWifi()) {
 }
 ```
 
-`suspendWifi()` is available only when `manageWifi=true` and the station is currently
-connected. It returns false during OTA checks, while an update is available or being
-installed, or while the new image awaits boot-health confirmation. The Wi-Fi credentials
+`suspendWifi()` is available only when `manageWifi=true`, the station is connected,
+and the interface is in STA-only mode. AP and AP+STA modes are refused because
+disabling STA alone would leave the access point radio active. It returns false during
+OTA checks, while an update is available or being installed, or while the new image
+awaits boot-health confirmation. The Wi-Fi credentials
 are retained; the normal reconnect service is held while suspended and resumes using
 the stored credentials. A successful `resumeWifi()` means reconnection was requested,
 not that an IP address has already been assigned.
