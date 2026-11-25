@@ -16,6 +16,12 @@ jobs:
         run: pip install platformio
       - name: Build Wi-Fi bootstrap against repository source
         run: pio run -d bootstrap/wifi-ota
+      - name: Ensure esptool Python dependencies are available
+        run: |
+          python -m pip install intelhex
+          if [ -x "$HOME/.platformio/penv/bin/python" ]; then
+            "$HOME/.platformio/penv/bin/python" -m pip install intelhex
+          fi
       - name: Build Wi-Fi application template against repository source
         run: |
           sed -i 's|https://github.com/haleypearse/esp-system.git#v0.2.0|file://../..|' templates/wifi-application/platformio.ini
