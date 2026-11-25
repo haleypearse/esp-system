@@ -58,6 +58,41 @@ void System::begin(const SystemConfig& config)
     _started = true;
 }
 
+bool System::suspendWifi()
+{
+    if (!_started || !_config.manageWifi || !_wifi.connected()) return false;
+
+    // Never interrupt an update check, a candidate awaiting installation, an
+    // active upload/install, or the first-boot rollback health window.
+    const OtaState state = _ota.status().state;
+    if (state != OtaState::Idle &&
+        state != OtaState::Confirmed &&
+        state != OtaState::Failed) {
+        return false;
+    }
+
+    if (!_wifi.suspend()) return false;
+
+    // The system-owned mDNS responder is tied to the station interface.
+    // Recreate it after the radio reconnects so coldstore.local and the
+    // management DNS-SD service recover after the temporary outage.
+    if (_config.manageMdns && _mdnsInitialized) {
+        MDNS.end();
+        _mdnsInitialized = false;
+        _mdnsServiceRegistered = false;
+        _mdnsAttempted = false;
+        _lastMdnsAttemptMs = 0;
+    }
+
+    return true;
+}
+
+bool System::resumeWifi()
+{
+    if (!_started || !_config.manageWifi || !_wifi.suspended()) return false;
+    return _wifi.resume();
+}
+
 void System::loop()
 {
     if (!_started) return;
