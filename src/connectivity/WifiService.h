@@ -10,9 +10,10 @@ public:
     void begin(const char* ssid = nullptr, const char* password = nullptr, const char* hostname = nullptr);
     void loop();
 
-    // Stop the Wi-Fi radio without erasing stored credentials. The System
-    // reconnect loop is held while suspended. Useful for hardware resources
-    // such as classic ESP32 ADC2 that conflict with an active Wi-Fi driver.
+    // Stop the Wi-Fi radio without erasing stored credentials. Requires a
+    // connected STA-only mode; AP/AP+STA is refused because an AP beacon would
+    // keep the radio active. The System reconnect loop is held while suspended.
+    // Useful for classic ESP32 ADC2 and other radio-conflicting peripherals.
     bool suspend();
     bool resume();
     bool suspended() const { return _suspended; }
