@@ -51,6 +51,13 @@ public:
     void begin(const SystemConfig& config);
     void loop();
 
+    // Temporarily stop the managed Wi-Fi radio without erasing credentials.
+    // Suspension is refused while OTA is checking, available, installing, or
+    // awaiting boot verification. Resume reconnects using stored credentials.
+    bool suspendWifi();
+    bool resumeWifi();
+    bool wifiSuspended() const { return _wifi.suspended(); }
+
     WifiService& wifi() { return _wifi; }
     OtaManager& ota() { return _ota; }
     SystemWeb& web() { return _web; }
