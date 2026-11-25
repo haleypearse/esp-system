@@ -48,7 +48,10 @@ void WifiService::loop()
 
 bool WifiService::suspend()
 {
-    if (_suspended || _ssid.isEmpty() || !connected()) return false;
+    // This API promises a true radio-off interval for shared peripherals.
+    // Refuse AP/AP+STA modes: disabling only STA would leave an AP beaconing.
+    if (_suspended || _ssid.isEmpty() || !connected() || WiFi.getMode() != WIFI_STA)
+        return false;
 
     // The first argument powers the radio off; the second deliberately keeps
     // the AP configuration and saved credentials intact.
