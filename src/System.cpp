@@ -71,11 +71,9 @@ bool System::suspendWifi()
         return false;
     }
 
-    if (!_wifi.suspend()) return false;
-
-    // The system-owned mDNS responder is tied to the station interface.
-    // Recreate it after the radio reconnects so coldstore.local and the
-    // management DNS-SD service recover after the temporary outage.
+    // Stop the system-owned mDNS responder while the station interface is
+    // still active. ensureMdns() will recreate it after reconnection. If
+    // suspension itself fails, the next System::loop() also restores mDNS.
     if (_config.manageMdns && _mdnsInitialized) {
         MDNS.end();
         _mdnsInitialized = false;
@@ -84,7 +82,7 @@ bool System::suspendWifi()
         _lastMdnsAttemptMs = 0;
     }
 
-    return true;
+    return _wifi.suspend();
 }
 
 bool System::resumeWifi()
