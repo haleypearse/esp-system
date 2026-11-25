@@ -3,8 +3,12 @@
 #include <Update.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
-#include <mbedtls/sha256.h>
 #include <mbedtls/version.h>
+#if MBEDTLS_VERSION_MAJOR >= 4
+#include <psa/crypto.h>
+#else
+#include <mbedtls/sha256.h>
+#endif
 #include <algorithm>
 #include <cctype>
 
@@ -57,6 +61,84 @@ bool OtaManager::preUpdateAllowed()
 }
 
 namespace {
+
+// Mbed TLS 4 (used by newer Arduino-ESP32 / ESP-IDF builds) removes the legacy
+// mbedtls_sha256_* interface. Use PSA Crypto there while keeping the classic
+// mbedTLS SHA-256 API for Arduino-ESP32 2.x / ESP-IDF 4.4 installations.
+#if MBEDTLS_VERSION_MAJOR >= 4
+using Sha256Context = psa_hash_operation_t;
+
+bool sha256Init(Sha256Context& ctx)
+{
+    psa_status_t status = psa_crypto_init();
+    if (status != PSA_SUCCESS) return false;
+
+    ctx = psa_hash_operation_init();
+    status = psa_hash_setup(&ctx, PSA_ALG_SHA_256);
+    if (status != PSA_SUCCESS) {
+        psa_hash_abort(&ctx);
+        ctx = psa_hash_operation_init();
+        return false;
+    }
+    return true;
+}
+
+bool sha256Update(Sha256Context& ctx, const uint8_t* data, size_t len)
+{
+    return psa_hash_update(&ctx, data, len) == PSA_SUCCESS;
+}
+
+bool sha256Finish(Sha256Context& ctx, uint8_t digest[32])
+{
+    size_t digestLength = 0;
+    const psa_status_t status =
+        psa_hash_finish(&ctx, digest, 32, &digestLength);
+    ctx = psa_hash_operation_init();
+    return status == PSA_SUCCESS && digestLength == 32;
+}
+
+void sha256Free(Sha256Context& ctx)
+{
+    psa_hash_abort(&ctx);
+    ctx = psa_hash_operation_init();
+}
+#else
+using Sha256Context = mbedtls_sha256_context;
+
+bool sha256Init(Sha256Context& ctx)
+{
+    mbedtls_sha256_init(&ctx);
+#if MBEDTLS_VERSION_MAJOR >= 3
+    return mbedtls_sha256_starts(&ctx, 0) == 0;
+#else
+    return mbedtls_sha256_starts_ret(&ctx, 0) == 0;
+#endif
+}
+
+bool sha256Update(Sha256Context& ctx, const uint8_t* data, size_t len)
+{
+#if MBEDTLS_VERSION_MAJOR >= 3
+    return mbedtls_sha256_update(&ctx, data, len) == 0;
+#else
+    return mbedtls_sha256_update_ret(&ctx, data, len) == 0;
+#endif
+}
+
+bool sha256Finish(Sha256Context& ctx, uint8_t digest[32])
+{
+#if MBEDTLS_VERSION_MAJOR >= 3
+    return mbedtls_sha256_finish(&ctx, digest) == 0;
+#else
+    return mbedtls_sha256_finish_ret(&ctx, digest) == 0;
+#endif
+}
+
+void sha256Free(Sha256Context& ctx)
+{
+    mbedtls_sha256_free(&ctx);
+}
+#endif
+
 bool isValidSha256Hex(const String& s)
 {
     if (s.length() != 64) return false;
@@ -113,16 +195,13 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
     if (!beginNativeUpdate(size, expectedSha256)) return false;
 
     const bool verifySha = !expectedSha256.isEmpty();
-    mbedtls_sha256_context shaCtx;
+    Sha256Context shaCtx{};
     uint8_t shaDigest[32] = {0};
 
-    if (verifySha) {
-        mbedtls_sha256_init(&shaCtx);
-#if MBEDTLS_VERSION_MAJOR >= 3
-        mbedtls_sha256_starts(&shaCtx, 0);
-#else
-        mbedtls_sha256_starts_ret(&shaCtx, 0);
-#endif
+    if (verifySha && !sha256Init(shaCtx)) {
+        Update.abort();
+        fail("Could not initialize SHA-256 verification");
+        return false;
     }
 
     uint8_t buffer[1024];
@@ -132,23 +211,23 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
         const size_t toRead = std::min(sizeof(buffer), size - totalWritten);
         const int got = stream.readBytes(reinterpret_cast<char*>(buffer), toRead);
         if (got <= 0) {
-            if (verifySha) mbedtls_sha256_free(&shaCtx);
+            if (verifySha) sha256Free(shaCtx);
             Update.abort();
             fail("Stream read failed during OTA", UPDATE_ERROR_STREAM);
             return false;
         }
 
-        if (verifySha) {
-#if MBEDTLS_VERSION_MAJOR >= 3
-            mbedtls_sha256_update(&shaCtx, buffer, static_cast<size_t>(got));
-#else
-            mbedtls_sha256_update_ret(&shaCtx, buffer, static_cast<size_t>(got));
-#endif
+        if (verifySha &&
+            !sha256Update(shaCtx, buffer, static_cast<size_t>(got))) {
+            sha256Free(shaCtx);
+            Update.abort();
+            fail("SHA-256 update failed");
+            return false;
         }
 
         const size_t written = Update.write(buffer, static_cast<size_t>(got));
         if (written != static_cast<size_t>(got)) {
-            if (verifySha) mbedtls_sha256_free(&shaCtx);
+            if (verifySha) sha256Free(shaCtx);
             Update.abort();
             fail(String("Only wrote ") + written + " of " + got + " bytes", UPDATE_ERROR_WRITE);
             return false;
@@ -158,12 +237,12 @@ bool OtaManager::installFromStream(Stream& stream, size_t size, const String& ex
     }
 
     if (verifySha) {
-#if MBEDTLS_VERSION_MAJOR >= 3
-        mbedtls_sha256_finish(&shaCtx, shaDigest);
-#else
-        mbedtls_sha256_finish_ret(&shaCtx, shaDigest);
-#endif
-        mbedtls_sha256_free(&shaCtx);
+        if (!sha256Finish(shaCtx, shaDigest)) {
+            sha256Free(shaCtx);
+            Update.abort();
+            fail("SHA-256 finalization failed");
+            return false;
+        }
 
         String actual = toHexLower(shaDigest, sizeof(shaDigest));
         String expected = expectedSha256;
