@@ -68,7 +68,13 @@ bool WifiService::resume()
 
     // Restore STA mode and reuse the credentials already loaded by begin().
     // Start the connection now; loop() will take over retrying if needed.
-    if (!WiFi.mode(WIFI_STA) && WiFi.getMode() != WIFI_STA) return false;
+    if (!WiFi.mode(WIFI_STA) && WiFi.getMode() != WIFI_STA) {
+        // Release the suspended state so the ordinary retry loop can make
+        // another attempt rather than leaving the radio permanently disabled.
+        _suspended = false;
+        _lastAttemptMs = millis() - _retryMs;
+        return false;
+    }
     if (!_hostname.isEmpty()) WiFi.setHostname(_hostname.c_str());
 
     WiFi.begin(_ssid.c_str(), _password.c_str());
