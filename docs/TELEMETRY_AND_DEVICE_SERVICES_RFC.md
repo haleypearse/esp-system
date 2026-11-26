@@ -12,7 +12,8 @@ ESP System should grow from an OTA/connectivity library into a reusable device-s
 - system diagnostics and support bundles;
 - power-aware scheduling and sleep coordination;
 - transport-independent store-and-forward synchronization;
-- OTA eligibility and maintenance policy for intermittently connected devices.
+- OTA eligibility and maintenance policy for intermittently connected devices;
+- local resource arbitration and distributed coordination of time-bounded operations.
 
 The cold-storage controller is the first test application. A multifunctional solar lamp is a second, materially different test case: it may be battery-powered, sleep for long periods, act as a light and environmental/motion sensor, and synchronize only when a gateway or parent is available.
 
@@ -30,6 +31,7 @@ This is not a proposal to move application control loops or sensor drivers into 
 | Measurement meaning, units, calibration and quality | Stores metadata | Defines and reports it |
 | Control algorithm and actuator policy | No | Yes |
 | Power/sleep coordination primitives | Common optional service | Requests sleep and supplies safety/energy policy |
+| Resource leases and coordinated operations | Common local arbitration and protocol-independent coordination primitives | Defines participants, timing, resources and safety criteria |
 | Network transports and store-forward queue | Common interfaces and adapters | Selects transports and application payloads |
 | Application dashboard | Generic viewer/API may be provided | Defines application-specific presentation |
 | OTA installation, rollback and health framework | Common mechanism | Supplies safe-update and health predicates |
@@ -124,6 +126,41 @@ Do not use NVS as a high-rate history store. NVS is suited to infrequently chang
 
 The query API is important enough to design alongside the write API. It should operate on time ranges and series IDs, independent of the underlying storage format.
 
+### 4.1 Candidate application-facing API
+
+The first stable contract should be a small in-process API, not an HTTP handler or storage-specific API. Conceptually it needs only:
+
+- register or update a series descriptor;
+- append a typed observation;
+- append a typed event;
+- query a bounded time range;
+- inspect storage and retention health;
+- configure a retention profile or per-series override.
+
+Names and exact C++ types are deliberately provisional. Applications should submit observations only when a new acquisition exists, and the store should reject or deduplicate repeated source sequence/timestamp pairs. Event append should support immediate persistence for important transitions, while normal observations may be buffered and committed in blocks.
+
+The contract should make acquisition time, clock quality, monotonic time, quality flags and optional source-reported uncertainty expressible without requiring every record to carry every field. A device that has not acquired UTC time must still be able to record monotonic timestamps associated with a boot/session identifier; later clock synchronization can provide a mapping without pretending that the original wall-clock time was known.
+
+### 4.2 Candidate HTTP query surface
+
+The device's HTTP layer should adapt the in-process API rather than own the store. A versioned route family is a sensible first convention:
+
+- `GET /api/v1/telemetry/series` — descriptors and schema versions;
+- `GET /api/v1/telemetry/query` — selected series over a bounded time range;
+- `GET /api/v1/telemetry/events` — exact event records over a range;
+- `GET /api/v1/telemetry/storage` — capacity, retention, gaps, dropped records and errors;
+- `GET /api/v1/telemetry/export` — CSV or JSON export of a selected range.
+
+A query should accept start/end timestamps, series IDs, resolution preference (raw, aggregate or automatic), and a maximum point budget. It should return the actual resolution, returned count, time coverage, known gaps and truncation state. The URL/API version and persistent storage format version are separate concerns; neither should be coupled to a C++ ABI.
+
+The application dashboard may expose same-origin routes on its own server and delegate them to the shared query service. The ESP System management server may provide a generic viewer, but dashboards should not need cross-origin access to a different port.
+
+### 4.3 API request and action diagnostics
+
+API request metadata is useful telemetry in its own right. The common layer can record route template, method, response status, duration, request/correlation ID, and selected sanitized query parameters. Application routes can additionally record consequential actions such as a control-mode change or configuration update, including validation outcome and a safe summary of the change.
+
+Do not record authorization headers, passwords, tokens, Wi-Fi credentials, or arbitrary request bodies by default. Request logging should be configurable and rate-limited so polling dashboards do not flood the event journal. The goal is to explain what the device was asked to do and how it responded, not to create a packet capture.
+
 Candidate operations:
 - list series and their descriptors;
 - query a time range for selected series;
@@ -192,14 +229,40 @@ This suggests a likely lamp topology: some mains-powered gateway/router lamps, p
 
 A low-power device should batch flash writes and network transfers, keep a small local queue, and flush when the energy/network budget allows. Event-triggered samples can temporarily increase resolution around interesting changes. A policy may reduce ordinary sampling under low battery while preserving safety-critical fault and cutoff events.
 
+### 6.6 Coordinated operations and radio-quiet windows
+
+Time synchronization, data synchronization, and operation coordination are related but distinct services:
+
+- **Clock synchronization** establishes UTC/monotonic-time relationships and reports clock quality or uncertainty.
+- **Data synchronization** transfers stored observations/events and deduplicates acknowledged sequence ranges.
+- **Operation coordination** arranges for multiple devices to perform, suspend, or avoid an activity during a shared time window.
+
+ESP System should eventually provide a transport-independent coordination model rather than hard-code a Wi-Fi mesh protocol into the telemetry store. Useful operations include a shared sensor-capture window, a radio-quiet interval for radar/CSI-style measurements, exclusive access to a shared resource, or coordinated power/load transitions.
+
+A candidate model is a time-bounded resource lease:
+
+- An operation has a unique ID/generation, owner, resource set, participant set, priority, deadline, planned start, duration, and required clock-uncertainty bound.
+- Participants first prepare and acknowledge that they can comply. The coordinator commits the operation only when the required participants or quorum have acknowledged.
+- Each participant schedules its own action against its monotonic clock and independently enforces lease expiry. It must restore suspended resources even if the coordinator disappears or the network is unavailable at the end of the window.
+- Cancellation, refusal, late acknowledgement, missed start, lease expiry and actual completion are explicit outcomes and should be recorded as events.
+- Required participants, optional participants and deliberately excluded nodes must be distinguishable. A coordinator or control path may need to remain active while other radios are quiet.
+
+The local resource arbiter can be useful before any distributed protocol exists. It can prevent incompatible local activities from overlapping—for example, an ADC2 radio-off window, OTA transfer, flash compaction, or a sensor operation that monopolizes an SPI bus. Existing `suspendWifi()` is a narrow example of this kind of arbitration; it currently uses an OTA-state check rather than a general resource-lease service.
+
+For distributed radio silence, commands must be exchanged and acknowledged before participants turn off their radios. Nodes should have a pre-agreed start and automatic resume deadline; relying on a message sent during the quiet interval to restore connectivity would be a deadlock. If required nodes do not acknowledge preparation, the coordinator should cancel rather than silently perform a partially coordinated measurement.
+
+Clock quality is part of the operation contract. Each node should report its estimated offset/uncertainty, and the coordinator should add guard intervals or refuse the operation when the bound is too large. Ordinary NTP/Wi-Fi synchronization should not be assumed to provide microsecond-level simultaneity. Precision radar or phase-coherent sensing may require a dedicated wired trigger, shared oscillator, PPS source, or radio hardware designed for synchronization.
+
+This is a future shared capability, not a prerequisite for the first telemetry release. The first step is to define resource/lease semantics and instrument the existing Wi-Fi suspend/resume operation; a distributed coordinator and transport adapters can follow when a concrete multi-node experiment exists.
+
 ## 7. Recommended implementation stages
 
-1. **Finish current Wi-Fi radio suspension work and hardware validation.** Keep it separate from telemetry. The existing ESP System and cold-storage pull requests are still draft; the latter builds on both partition targets, but hardware behavior still needs confirmation.
-2. **Agree the semantic model and query contract.** Write API-level types and host-test aggregation/merge behavior. Do not choose exact flash bytes or resize partitions yet.
+1. **Complete hardware validation of managed Wi-Fi radio suspension and ADC2 sampling.** The ESP System and cold-storage changes are now merged; verify actual radio-off behavior, successful ADC2 acquisition, and Wi-Fi/mDNS/HTTP recovery on the device.
+2. **Agree the semantic model and query contract.** Specify the in-process append/query API, versioned HTTP query representation, clock-quality/monotonic timestamp semantics, and retention-profile configuration. Host-test aggregation/merge behavior. Do not choose exact flash bytes or resize partitions yet.
 3. **Build a storage prototype with synthetic data.** Measure bytes per series/sample/event, compaction amplification, RAM use, power-loss recovery, and month-equivalent retention on 4 MiB and 8 MiB budgets.
 4. **Integrate with cold storage.** Add acquisition timestamps for ADC1, use existing ADC2 acquisition timestamps, log only new observations when due, emit refrigeration/system events, and use range queries to power a zoomable chart.
 5. **Abstract and reuse.** Move the proven store/query engine into ESP System; add generic system diagnostics and a generic management viewer. Keep cold-storage series and chart semantics in the application.
-6. **Use a solar-lamp prototype to test the second profile.** Add power lifecycle, wake diagnostics, store-forward batching and power-aware OTA after the always-on cold-storage profile works.
+6. **Use the solar-lamp scenario as a second requirements profile, not a hardware dependency.** Its intended battery/sleep/intermittent-network behaviour should influence the shared abstractions now. A physical lamp prototype can later validate power lifecycle, wake diagnostics, store-forward batching, energy-aware OTA and multi-node coordination.
 
 ## 8. Explicit non-decisions
 
@@ -210,6 +273,8 @@ This RFC does not select:
 - a final 4 MiB partition resize;
 - fixed retention horizons or compaction ratios;
 - a universal graph layout;
+- exact C++ method names and HTTP JSON field names (the API shape above is a proposal);
+- distributed coordination protocol, consensus/quorum rules and transport;
 - Wi-Fi versus Zigbee/Thread as a universal transport;
 - a full cloud/fleet management service.
 
