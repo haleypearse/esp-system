@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - unreleased
+
+- Added managed Wi-Fi suspend/resume for brief radio outages without erasing credentials.
+- Pauses automatic reconnect while suspended and reconnects through the existing credential store.
+- Refuses suspension while OTA is checking, available, installing, or awaiting boot confirmation.
+- Restarts the System-managed mDNS responder after reconnection.
+
 ## 0.2.0 - unreleased
 
 - Added configurable ESP System management HTTP port, defaulting to 8080.

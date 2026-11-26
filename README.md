@@ -50,6 +50,40 @@ void loop() {
 
 The application can optionally supply a health check and a pre-update safety check.
 
+## Temporary Wi-Fi radio suspension
+
+Some hardware peripherals share resources with the Wi-Fi driver. On the classic ESP32,
+ADC2 is one example: a single-read ADC2 operation can fail while the Wi-Fi driver is
+running. Applications that only need an occasional sample can use the managed
+suspend/resume API rather than taking ownership of Wi-Fi themselves:
+
+```cpp
+if (espSystem.suspendWifi()) {
+    // The Wi-Fi radio is stopped here. Do the short ADC2 acquisition.
+    const bool sampled = sensors.sampleAdc2WhileWifiOff(settings);
+
+    // Always request reconnection, even if the sensor read failed.
+    const bool reconnectRequested = espSystem.resumeWifi();
+}
+```
+
+`suspendWifi()` is available only when `manageWifi=true`, the station is connected,
+and the interface is in STA-only mode. AP and AP+STA modes are refused because
+disabling STA alone would leave the access point radio active. It returns false during
+OTA checks, while an update is available or being installed, or while the new image
+awaits boot-health confirmation. The Wi-Fi credentials
+are retained; the normal reconnect service is held while suspended and resumes using
+the stored credentials. A successful `resumeWifi()` means reconnection was requested,
+not that an IP address has already been assigned.
+
+When System owns mDNS (`manageMdns=true`), the responder is stopped during suspension
+and started again after station reconnection. If the application owns mDNS
+(`manageMdns=false`), that application remains responsible for its responder lifecycle.
+A radio pause drops active LAN connections; do not use it during an OTA upload or other
+long-lived network transaction. Keep the pause short and use it for occasional sampling,
+not a high-rate polling loop.
+
+
 ## First-boot / bootstrap workflow
 
 1. Copy `bootstrap/wifi-ota/include/secrets.h.example` to `secrets.h`.

@@ -68,6 +68,18 @@ registers its `_esp-system._tcp` service on the existing responder rather than s
 Set `config.manageWifi = false` if application code already owns `WiFi.begin()`/connection recovery; System will reuse the global Arduino Wi-Fi connection rather than reconfiguring it. If the application leaves Wi-Fi management enabled (the default), System owns station setup/retry. Blank SSID/password may load previously stored NVS Wi-Fi values only when `manageWifi=true`; blank OTA user/password may load the stored management credentials. Stored Wi-Fi and OTA
 credentials share the `esp_system` NVS namespace. Do not erase this namespace as part of a normal OTA. Avoid choosing a management port already used by another server on the device.
 
+Applications using System-managed Wi-Fi may call `espSystem.suspendWifi()` and
+`espSystem.resumeWifi()` for a short, deliberate radio outage (for example, to access
+a peripheral resource that conflicts with an active Wi-Fi driver). Suspension requires
+a connected STA-only interface; AP and AP+STA modes are refused because the radio
+would remain active. Suspension is also refused while OTA is checking, an update is
+available or installing, or boot-health verification is pending. When `manageMdns=true`, System restarts its own mDNS responder
+after reconnection. A successful resume call only requests reconnection; it does not
+mean that the station has already regained an IP address. Always request resume on
+every exit path after a successful suspension. Do not suspend during a browser upload
+or any application network transaction.
+
+
 ## Partition and release requirements
 
 Use a partition table compatible with what is already flashed on the board. Regular OTA does not alter

@@ -58,6 +58,39 @@ void System::begin(const SystemConfig& config)
     _started = true;
 }
 
+bool System::suspendWifi()
+{
+    if (!_started || !_config.manageWifi || !_wifi.connected()) return false;
+
+    // Never interrupt an update check, a candidate awaiting installation, an
+    // active upload/install, or the first-boot rollback health window.
+    const OtaState state = _ota.status().state;
+    if (state != OtaState::Idle &&
+        state != OtaState::Confirmed &&
+        state != OtaState::Failed) {
+        return false;
+    }
+
+    // Stop the system-owned mDNS responder while the station interface is
+    // still active. ensureMdns() will recreate it after reconnection. If
+    // suspension itself fails, the next System::loop() also restores mDNS.
+    if (_config.manageMdns && _mdnsInitialized) {
+        MDNS.end();
+        _mdnsInitialized = false;
+        _mdnsServiceRegistered = false;
+        _mdnsAttempted = false;
+        _lastMdnsAttemptMs = 0;
+    }
+
+    return _wifi.suspend();
+}
+
+bool System::resumeWifi()
+{
+    if (!_started || !_config.manageWifi || !_wifi.suspended()) return false;
+    return _wifi.resume();
+}
+
 void System::loop()
 {
     if (!_started) return;

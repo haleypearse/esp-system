@@ -34,7 +34,9 @@ void WifiService::begin(const char* ssid, const char* password, const char* host
 
 void WifiService::loop()
 {
-    if (_ssid.isEmpty() || connected()) return;
+    // A deliberate application pause must not be mistaken for an outage that
+    // the automatic retry loop should immediately reconnect.
+    if (_suspended || _ssid.isEmpty() || connected()) return;
 
     const uint32_t now = millis();
     if (now - _lastAttemptMs < _retryMs) return;
@@ -42,6 +44,48 @@ void WifiService::loop()
     WiFi.disconnect();
     WiFi.begin(_ssid.c_str(), _password.c_str());
     _lastAttemptMs = now;
+}
+
+bool WifiService::suspend()
+{
+    // This API promises a true radio-off interval for shared peripherals.
+    // Refuse AP/AP+STA modes: disabling only STA would leave an AP beaconing.
+    if (_suspended || _ssid.isEmpty() || !connected() || WiFi.getMode() != WIFI_STA)
+        return false;
+
+    // The first argument powers the radio off; the second deliberately keeps
+    // the AP configuration and saved credentials intact.
+    _suspended = true;
+    if (!WiFi.disconnect(true, false)) {
+        _suspended = false;
+        return false;
+    }
+
+    Serial.println("[ESP System] Wi-Fi radio suspended by application.");
+    return true;
+}
+
+bool WifiService::resume()
+{
+    if (!_suspended || _ssid.isEmpty()) return false;
+
+    // Restore STA mode and reuse the credentials already loaded by begin().
+    // Start the connection now; loop() will take over retrying if needed.
+    if (!WiFi.mode(WIFI_STA) && WiFi.getMode() != WIFI_STA) {
+        // Release the suspended state so the ordinary retry loop can make
+        // another attempt rather than leaving the radio permanently disabled.
+        _suspended = false;
+        _lastAttemptMs = millis() - _retryMs;
+        return false;
+    }
+    if (!_hostname.isEmpty()) WiFi.setHostname(_hostname.c_str());
+
+    WiFi.begin(_ssid.c_str(), _password.c_str());
+    _lastAttemptMs = millis();
+    _suspended = false;
+
+    Serial.println("[ESP System] Wi-Fi resume requested; reconnecting.");
+    return true;
 }
 
 bool WifiService::hasCredentials() const
