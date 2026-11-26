@@ -257,7 +257,7 @@ This is a future shared capability, not a prerequisite for the first telemetry r
 
 ## 7. Recommended implementation stages
 
-1. **Complete hardware validation of managed Wi-Fi radio suspension and ADC2 sampling.** The ESP System and cold-storage changes are now merged; verify actual radio-off behavior, successful ADC2 acquisition, and Wi-Fi/mDNS/HTTP recovery on the device.
+1. **Treat the merged Wi-Fi suspension and cold-storage integration as the current baseline.** Confirm any remaining device-specific radio-off, ADC2 and reconnection behaviour alongside development; this does not block the host-side telemetry API, aggregation or storage prototype.
 2. **Agree the semantic model and query contract.** Specify the in-process append/query API, versioned HTTP query representation, clock-quality/monotonic timestamp semantics, and retention-profile configuration. Host-test aggregation/merge behavior. Do not choose exact flash bytes or resize partitions yet.
 3. **Build a storage prototype with synthetic data.** Measure bytes per series/sample/event, compaction amplification, RAM use, power-loss recovery, and month-equivalent retention on 4 MiB and 8 MiB budgets.
 4. **Integrate with cold storage.** Add acquisition timestamps for ADC1, use existing ADC2 acquisition timestamps, log only new observations when due, emit refrigeration/system events, and use range queries to power a zoomable chart.
