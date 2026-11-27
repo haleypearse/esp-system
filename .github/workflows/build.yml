@@ -9,6 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure native telemetry tests
+        run: cmake -S . -B build/native
+      - name: Build native telemetry tests
+        run: cmake --build build/native --parallel
+      - name: Run native telemetry tests
+        run: ctest --test-dir build/native --output-on-failure
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
