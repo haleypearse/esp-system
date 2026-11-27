@@ -229,7 +229,21 @@ This suggests a likely lamp topology: some mains-powered gateway/router lamps, p
 
 A low-power device should batch flash writes and network transfers, keep a small local queue, and flush when the energy/network budget allows. Event-triggered samples can temporarily increase resolution around interesting changes. A policy may reduce ordinary sampling under low battery while preserving safety-critical fault and cutoff events.
 
-### 6.6 Coordinated operations and radio-quiet windows
+### 6.6 Cooperative device fabric and coordinated operations
+
+The higher-level goal is not merely a radio-quiet function. ESP System should make it possible for independently running devices—with different application firmware but compatible system contracts—to cooperate as one logical instrument or machine when useful. A powered node may be a coordinator, but coordinator status should be a lease or elected role rather than a permanent hardware identity.
+
+Each node should be able to advertise a versioned set of capabilities and resources: for example, microphone capture, temperature measurement, illumination, radar sampling, local history, or relay control. A coordinator can discover eligible nodes, form a group or temporary ensemble, request an operation, collect acknowledgements and results, and expose a combined view with provenance. Group membership should be dynamic; a logical instrument can consist of different physical nodes at different times.
+
+This suggests a distinction between:
+- **Physical device identity:** the durable identity and firmware of each node.
+- **Capability identity:** the operation or service a node currently offers, including version and constraints.
+- **Logical group/instrument identity:** a persistent or temporary collection of nodes and capabilities.
+- **Operation identity:** a single coordinated activity with participants, schedule, parameters and results.
+
+The common layer should provide discovery, capability descriptions, group membership, request/response and publish/subscribe primitives, bounded operation leases, time-quality reporting, and provenance. Applications define what the capabilities mean and whether a requested operation is safe. The coordinator proposes work; a participant retains the right to refuse it based on its local safety, energy, resource or firmware state.
+
+A coordinator role can be preferred on mains-powered nodes, but should support lease expiry, handover and fallback. A partitioned network must not leave two coordinators believing they own the same exclusive operation. Use operation IDs/generations, lease expiry, idempotent commands and explicit commit/cancel outcomes. The first implementation need not solve general distributed consensus; it should make authority and failure modes explicit and use one coordinator per group/operation with a bounded lease.
 
 Time synchronization, data synchronization, and operation coordination are related but distinct services:
 
@@ -253,9 +267,54 @@ For distributed radio silence, commands must be exchanged and acknowledged befor
 
 Clock quality is part of the operation contract. Each node should report its estimated offset/uncertainty, and the coordinator should add guard intervals or refuse the operation when the bound is too large. Ordinary NTP/Wi-Fi synchronization should not be assumed to provide microsecond-level simultaneity. Precision radar or phase-coherent sensing may require a dedicated wired trigger, shared oscillator, PPS source, or radio hardware designed for synchronization.
 
-This is a future shared capability, not a prerequisite for the first telemetry release. The first step is to define resource/lease semantics and instrument the existing Wi-Fi suspend/resume operation; a distributed coordinator and transport adapters can follow when a concrete multi-node experiment exists.
+This is a future shared capability, not a prerequisite for the first telemetry release. The first step is to define capability descriptions, group/operation identities, local resource leases and failure semantics, and instrument the existing Wi-Fi suspend/resume operation. A distributed coordinator and transport adapters can follow when a concrete multi-node experiment exists.
 
-## 7. Recommended implementation stages
+### 6.7 Existing technology patterns worth borrowing
+
+The goal is to reuse concepts, not automatically adopt a large middleware stack:
+
+- **ESP-NOW** is a useful low-overhead peer transport for discovery, short commands, acknowledgements and small observations without an IP router. It is not a complete reliable group-coordination protocol: application acknowledgements, retries, sequence numbers and duplicate handling remain necessary. Payload limits depend on ESP-IDF/protocol version (v1 frames are 250 bytes; newer v2 support allows larger frames). See the [ESP-NOW programming guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/network/esp_now.html).
+- **ESP-WIFI-MESH** provides self-organizing Wi-Fi topology, including root/parent selection and reconnection. It solves network formation/routing, not the meaning or safety of coordinated operations. Its self-organizing mode owns Wi-Fi API calls, so unrelated application Wi-Fi management must not conflict with it. See the [ESP-WIFI-MESH guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/network/esp-wifi-mesh.html).
+- **MQTT** is a practical brokered pub/sub option when a reliable gateway or broker is available. It is useful for asynchronous state and commands, but a broker dependency is not ideal for autonomous peer-to-peer operation.
+- **DDS / micro-ROS** offers richer typed pub/sub and QoS concepts used in robotics. Micro XRCE-DDS puts a small client on the constrained node and an Agent between it and the DDS global data space. It is a useful reference if robotics-style orchestration becomes a real requirement, but likely excessive for the first ESP System implementation. See [Micro XRCE-DDS](https://micro.ros.org/docs/concepts/middleware/Micro_XRCE-DDS/).
+- **Eclipse Zenoh** is conceptually close to the desired direction because it combines pub/sub, queries and data at rest across peer, brokered and hybrid topologies. It merits a later footprint/ESP32 feasibility study rather than being selected now. See [Zenoh overview](https://zenoh.io/docs/overview/what-is-zenoh/).
+
+For a set of microphones, the fabric can schedule a common capture operation and align buffers by timestamps. Whether this is adequate depends on the intended result. Coarse event correlation or sound-level comparison tolerates much looser timing than phase-coherent beamforming. For coherent multi-microphone processing, wall-clock synchronization and a future start command alone are not enough: sample-clock drift and capture latency require calibration and potentially a shared clock, wired trigger/PPS, or another hardware synchronization path.
+
+For spatial temperature measurements, the same fabric is much simpler: each node reports a calibrated observation with acquisition time, sensor identity and location metadata. A logical instrument can query these series and derive a spatial or combined measurement while retaining provenance and the individual source readings. In both cases, the logical instrument is a composition of capabilities, not a single firmware image.
+
+## 7. OTA and deployment model
+
+ESP-IDF's normal OTA mechanism switches between application slots: it writes the inactive slot, selects it for the next boot, then boots and optionally validates that application. The two OTA slots are rollback/update alternatives, not two concurrently executing application firmwares. A dual-core ESP32 runs one firmware image under FreeRTOS SMP; the cores do not host independent OTA applications.
+
+Keep the OTA/boot foundation small and stable. ESP System should provide a compact core plus optional services that applications link in when needed. Updating an application that includes a service still updates the application image as a whole. Do not introduce a dynamic native-code plugin loader merely to avoid reflashing: it creates ABI compatibility, memory protection, signing, versioning and rollback problems disproportionate to the likely benefit.
+
+For independently changing behaviours, prefer:
+- separate physical nodes, each with its own application image and OTA lifecycle, cooperating through stable capability/operation contracts;
+- a gateway or home server for rapidly changing orchestration, visualization and heavier processing;
+- configuration or declarative policies for changes that do not require new executable code.
+
+This allows multiple application firmwares to run simultaneously across a device group without requiring multiple application images to run on one ESP32.
+
+## 8. Host testing and portable core
+
+Aggregation, retention policy, schema validation, query planning and operation-state logic should be ordinary C++ code with no direct dependency on Arduino, ESP-IDF, FreeRTOS or hardware peripherals. This makes them testable on a development computer and in CI.
+
+A small native test target can use synthetic observations and fake clock/storage interfaces to test:
+- correct merge of statistics for unequal counts and irregular timestamps;
+- min/max timestamps, mean, variance and data-quality counts through multiple compaction levels;
+- boolean state duty time, transition counts, counters and reset/wrap handling;
+- duplicate, out-of-order and missing observations;
+- retention boundaries and per-series overrides;
+- bounded range queries and downsampling that preserves extrema and events;
+- versioned record decode, truncated writes, CRC failures and recovery to the last valid block;
+- operation prepare/commit/cancel, lease expiry, participant refusal and coordinator loss.
+
+GitHub Actions can run these tests automatically on each push/PR; local execution can be a single documented command. Host tests do not emulate flash wear, real power interruption, RF timing, ADC behaviour or ESP-IDF scheduling. Those remain target-hardware integration tests. A fake storage backend can test the storage engine's logic, followed by LittleFS/raw-flash tests on real hardware.
+
+The goal is not to introduce a parallel development environment for the entire firmware. Only the portable algorithms and data contracts need to compile natively; Arduino adapters, Wi-Fi, filesystem drivers and hardware remain in the existing PlatformIO ESP32 build.
+
+## 9. Recommended implementation stages
 
 1. **Treat the merged Wi-Fi suspension and cold-storage integration as the current baseline.** Confirm any remaining device-specific radio-off, ADC2 and reconnection behaviour alongside development; this does not block the host-side telemetry API, aggregation or storage prototype.
 2. **Agree the semantic model and query contract.** Specify the in-process append/query API, versioned HTTP query representation, clock-quality/monotonic timestamp semantics, and retention-profile configuration. Host-test aggregation/merge behavior. Do not choose exact flash bytes or resize partitions yet.
@@ -264,7 +323,7 @@ This is a future shared capability, not a prerequisite for the first telemetry r
 5. **Abstract and reuse.** Move the proven store/query engine into ESP System; add generic system diagnostics and a generic management viewer. Keep cold-storage series and chart semantics in the application.
 6. **Use the solar-lamp scenario as a second requirements profile, not a hardware dependency.** Its intended battery/sleep/intermittent-network behaviour should influence the shared abstractions now. A physical lamp prototype can later validate power lifecycle, wake diagnostics, store-forward batching, energy-aware OTA and multi-node coordination.
 
-## 8. Explicit non-decisions
+## 10. Explicit non-decisions
 
 This RFC does not select:
 - a fixed C++ ABI or final public class names;
@@ -276,11 +335,12 @@ This RFC does not select:
 - exact C++ method names and HTTP JSON field names (the API shape above is a proposal);
 - distributed coordination protocol, consensus/quorum rules and transport;
 - Wi-Fi versus Zigbee/Thread as a universal transport;
+- a complete device-fabric protocol or general distributed-consensus algorithm;
 - a full cloud/fleet management service.
 
 These should be decided by a minimal prototype and measurements, not by guessing from one application's current data volume.
 
-## 9. Acceptance criteria for the first telemetry release
+## 11. Acceptance criteria for the first telemetry release
 
 - Applications can register series and write typed observations/events without knowing the storage backend.
 - Acquisition timestamp, quality and optional uncertainty are represented without forcing those fields into every record.
